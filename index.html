@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111827">
+<link rel="manifest" href="manifest.json">
+<title>Simple File Share</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f3f4f6;color:#111827}
+main{max-width:620px;margin:auto;padding:24px 16px}
+.card{background:white;border-radius:18px;padding:20px;margin:14px 0;box-shadow:0 3px 18px #0001}
+h1{font-size:28px;margin:0 0 8px}.muted{color:#6b7280}
+button{border:0;border-radius:12px;padding:13px 16px;font-size:16px;background:#111827;color:white;margin:6px 4px 6px 0}
+button.secondary{background:#e5e7eb;color:#111827}
+button.danger{background:#b91c1c}
+input[type=file]{width:100%;margin:12px 0}
+code{word-break:break-all}.link{background:#f3f4f6;padding:12px;border-radius:10px;display:block}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.hidden{display:none}
+.file{padding:10px;border-bottom:1px solid #eee}.status{font-weight:600}
+progress{width:100%;height:18px}
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Simple File Share</h1>
+    <div class="muted">A: no app required. B: install this app.</div>
+  </div>
+
+  <section id="receiver" class="card">
+    <h2>Android B — Receive files</h2>
+    <p>Create a temporary access request and send the link to Android A.</p>
+    <button id="createBtn">Create access request</button>
+    <div id="requestBox" class="hidden">
+      <p class="status">Waiting for Android A…</p>
+      <div class="link" id="shareLink"></div>
+      <button id="copyBtn">Copy link</button>
+      <button id="stopBtn" class="danger">End request</button>
+      <div id="received"></div>
+    </div>
+  </section>
+
+  <section id="sender" class="card hidden">
+    <h2>Android A — Approve files</h2>
+    <p>Android B is requesting selected files. Choose what you want to share.</p>
+    <input id="files" type="file" multiple>
+    <div id="selected" class="muted"></div>
+    <button id="allowBtn">Allow selected files</button>
+    <div id="senderStatus" class="status"></div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const target = params.get("peer");
+const token = params.get("token");
+const isSender = !!target && !!token;
+
+const receiver = document.getElementById("receiver");
+const sender = document.getElementById("sender");
+if (isSender) {
+  receiver.classList.add("hidden");
+  sender.classList.remove("hidden");
+}
+
+let peer=null, conn=null, sessionToken=null;
+const CHUNK = 64 * 1024;
+
+function randToken(){
+  const a = new Uint8Array(18); crypto.getRandomValues(a);
+  return [...a].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+
+async function sendFile(file){
+  conn.send({type:"file-start",name:file.name,size:file.size,mime:file.type||"application/octet-stream"});
+  let offset=0;
+  while(offset<file.size){
+    const buf=await file.slice(offset,offset+CHUNK).arrayBuffer();
+    conn.send(buf);
+    offset+=buf.byteLength;
+    document.getElementById("senderStatus").textContent =
+      `Sending ${file.name}: ${Math.round(offset/file.size*100)}%`;
+    await new Promise(r=>setTimeout(r,8));
+  }
+  conn.send({type:"file-end",name:file.name});
+}
+
+if (!isSender) {
+  document.getElementById("createBtn").onclick=()=>{
+    sessionToken=randToken();
+    peer=new Peer(undefined,{debug:0});
+    peer.on("open",id=>{
+      const url=new URL(location.href);
+      url.search="?peer="+encodeURIComponent(id)+"&token="+encodeURIComponent(sessionToken);
+      document.getElementById("shareLink").textContent=url.toString();
+      document.getElementById("requestBox").classList.remove("hidden");
+    });
+    peer.on("connection",c=>{
+      conn=c;
+      c.on("open",()=>c.send({type:"hello",token:sessionToken}));
+      c.on("data",handleIncoming);
+    });
+    peer.on("error",e=>alert("Connection error: "+e.message));
+  };
+  document.getElementById("copyBtn").onclick=async()=>{
+    await navigator.clipboard.writeText(document.getElementById("shareLink").textContent);
+    document.getElementById("copyBtn").textContent="Copied";
+  };
+  document.getElementById("stopBtn").onclick=()=>{
+    if(peer) peer.destroy();
+    location.href=location.pathname;
+  };
+
+  let current=null, chunks=[], receivedBytes=0;
+  function handleIncoming(data){
+    if(data && data.type==="file-start"){
+      current=data; chunks=[]; receivedBytes=0;
+      const box=document.getElementById("received");
+      const div=document.createElement("div"); div.className="file"; div.id="currentFile";
+      div.innerHTML=`<b>${escapeHtml(data.name)}</b><br><span id="progressText">0%</span><progress id="prog" max="100" value="0"></progress>`;
+      box.prepend(div);
+      return;
+    }
+    if(data && data.type==="file-end"){
+      const blob=new Blob(chunks,{type:current.mime});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a"); a.href=url; a.download=current.name; a.textContent="Download "+current.name;
+      const div=document.getElementById("currentFile"); div.appendChild(document.createElement("br")); div.appendChild(a);
+      current=null; chunks=[]; receivedBytes=0; return;
+    }
+    if(data instanceof ArrayBuffer){
+      chunks.push(data); receivedBytes+=data.byteLength;
+      const p=document.getElementById("prog"), t=document.getElementById("progressText");
+      if(current && p){p.value=receivedBytes/current.size*100;t.textContent=Math.round(p.value)+"%";}
+    }
+  }
+} else {
+  const status=document.getElementById("senderStatus");
+  const fileInput=document.getElementById("files");
+  fileInput.onchange=()=>document.getElementById("selected").textContent =
+    `${fileInput.files.length} file(s) selected.`;
+  peer=new Peer();
+  peer.on("open",()=>{
+    conn=peer.connect(target,{reliable:true});
+    conn.on("open",()=>conn.send({type:"auth",token}));
+    conn.on("data",msg=>{
+      if(msg && msg.type==="hello" && msg.token===token) status.textContent="Connected to Android B. Select files and tap Allow.";
+    });
+  });
+  peer.on("error",e=>status.textContent="Connection error: "+e.message);
+
+  document.getElementById("allowBtn").onclick=async()=>{
+    if(!conn || !conn.open){status.textContent="Not connected yet.";return;}
+    if(!fileInput.files.length){status.textContent="Please select at least one file.";return;}
+    status.textContent="Sending approved files…";
+    for(const file of fileInput.files) await sendFile(file);
+    conn.send({type:"done"});
+    status.textContent="Finished. You can close this page.";
+  };
+}
+</script>
+</body>
+</html>
