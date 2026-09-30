@@ -1,142 +1,37 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WhatsApp Voice Notes Share</title>
-<style>
-body{font-family:Arial,sans-serif;max-width:650px;margin:auto;padding:24px;line-height:1.5;background:#fafafa}
-.box{padding:20px;border:1px solid #ddd;border-radius:14px;margin-top:18px;background:#fff}
-button{padding:13px 18px;border:0;border-radius:9px;background:#1769e0;color:#fff;font-size:16px;width:100%;margin-top:8px}
-button:disabled{opacity:.5}.link{word-break:break-all;background:#f5f5f5;padding:10px;border-radius:8px}
-.small{font-size:13px;color:#666}.count{font-weight:bold}
-#progress{margin-top:12px}
-</style></head>
-<body>
-<h2>WhatsApp Voice Notes Share</h2>
-<div id="app"></div>
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Voice Notes Upload</title>
+<style>body{font-family:Arial,sans-serif;max-width:700px;margin:auto;padding:20px;line-height:1.5;background:#fafafa}.box{padding:20px;border:1px solid #ddd;border-radius:14px;margin-top:18px;background:#fff}button{padding:13px 18px;border:0;border-radius:9px;background:#1769e0;color:#fff;font-size:16px;width:100%;margin-top:8px}button:disabled{opacity:.5}.small{font-size:13px;color:#666}.item{padding:10px 0;border-bottom:1px solid #ddd;word-break:break-word}.bar{height:10px;background:#eee;border-radius:8px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#1769e0}.ok{font-weight:bold}</style></head><body>
+<h2>WhatsApp Voice Notes Upload</h2><div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const app=document.getElementById("app"),p=new URLSearchParams(location.search),remote=p.get("peer"),token=p.get("token");
-const ice=[
- {urls:"stun:stun.l.google.com:19302"},
- {urls:"turn:openrelay.metered.ca:80",username:"openrelayproject",credential:"openrelayproject"},
- {urls:"turn:openrelay.metered.ca:443",username:"openrelayproject",credential:"openrelayproject"},
- {urls:"turn:openrelay.metered.ca:443?transport=tcp",username:"openrelayproject",credential:"openrelayproject"}
-];
-
-if(!remote){
- app.innerHTML='<div class="box"><b>Device B</b><p>Create an access link and open it on the WhatsApp phone.</p><button id="create">Create access link</button><p id="s"></p><div id="r"></div></div><div class="box"><b>Received files</b><div id="files"></div></div>';
- document.getElementById("create").onclick=()=>{
-   const s=document.getElementById("s"),r=document.getElementById("r"),t=crypto.randomUUID();
-   const peer=new Peer(undefined,{config:{iceServers:ice}});
-   s.textContent="Creating access link…";
-   peer.on("open",id=>{
-     const link=location.origin+location.pathname+"?peer="+encodeURIComponent(id)+"&token="+encodeURIComponent(t);
-     r.innerHTML="<p>Open this link on the WhatsApp phone:</p><div class=link>"+link+"</div>";
-     s.textContent="Waiting for the WhatsApp phone…";
-   });
-   peer.on("connection",c=>{
-     let ok=false;
-     c.on("open",()=>c.send({type:"hello",token:t}));
-     c.on("data",d=>{
-       if(!ok){
-         if(d&&d.type==="auth"&&d.token===t){ok=true;s.textContent="Connected. Waiting for the folder…";}
-         return;
-       }
-       if(d&&d.type==="folder-start"){
-         document.getElementById("files").innerHTML="";
-         s.textContent="Receiving folder: "+d.name+" ("+d.count+" files)…";
-       }else if(d&&d.type==="file-start"){
-         window.f={name:d.name,type:d.mime||"application/octet-stream",size:d.size,ch:[]};
-         s.textContent="Receiving: "+d.name;
-       }else if(d&&d.type==="file-end"&&window.f){
-         const f=window.f;
-         const blob=new Blob(f.ch,{type:f.type});
-         const safeName=(f.name||"file").split("/").pop().replace(/[\\/:*?"<>|]/g,"_")||"file";
-         const u=URL.createObjectURL(blob);
-         const wrap=document.createElement("div");
-         wrap.style.cssText="padding:10px 0;border-bottom:1px solid #ddd";
-         const info=document.createElement("div");
-         info.textContent=safeName+" — "+(blob.size/1024).toFixed(1)+" KB";
-         const a=document.createElement("a");
-         a.href=u;a.download=safeName;a.textContent="Download file";a.style.display="inline-block";a.style.marginTop="8px";
-         a.addEventListener("click",()=>setTimeout(()=>URL.revokeObjectURL(u),60000),{once:true});
-         wrap.appendChild(info);wrap.appendChild(a);
-         document.getElementById("files").appendChild(wrap);
-         window.f=null;
-       }else if(d&&d.type==="folder-end"){
-         s.textContent="Folder received successfully.";
-       }else if(d instanceof ArrayBuffer&&window.f) window.f.ch.push(d);
-     });
-     c.on("error",e=>s.textContent="Connection error: "+e.message);
-   });
-   peer.on("error",e=>s.textContent="Peer error: "+e.type);
- };
+const SUPABASE_URL='https://ouddechuphjxzyaueeld.supabase.co';
+const SUPABASE_KEY='sb_publishable_mQcukaJ6dnVD0Pvvb3xOLw_JbRQvSXA';
+const BUCKET='voice-notes';
+const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const app=document.getElementById('app');
+const p=new URLSearchParams(location.search); const admin=p.get('admin')==='1';
+function safe(s){return (s||'file').replace(/[^a-zA-Z0-9._()\- /]/g,'_').replace(/^\/+|\/+$/g,'');}
+async function listAll(prefix=''){
+ let all=[],offset=0; while(true){const {data,error}=await db.storage.from(BUCKET).list(prefix,{limit:1000,offset,sortBy:{column:'name',order:'asc'}}); if(error)throw error; if(!data?.length)break; all.push(...data); if(data.length<1000)break; offset+=data.length;} return all;
+}
+if(admin){
+ app.innerHTML='<div class="box"><b>Uploaded folders</b><p class="small">Files are stored in your private Supabase bucket.</p><button id="refresh">Refresh</button><div id="list">Loading…</div></div>';
+ const list=document.getElementById('list');
+ async function refresh(){list.textContent='Loading…';try{const roots=await listAll('');if(!roots.length){list.textContent='No uploads yet.';return;}list.innerHTML='';for(const x of roots){if(x.name==='.')continue;const div=document.createElement('div');div.className='item';div.innerHTML='<b>'+x.name+'</b>';list.appendChild(div);try{const files=await listAll(x.name);for(const f of files){if(f.name==='.')continue;const path=x.name+'/'+f.name;const {data,error}=await db.storage.from(BUCKET).createSignedUrl(path,3600);const row=document.createElement('div');row.className='small';row.style.margin='6px 0 0 12px';row.textContent=f.name+(error?'':' — ');if(!error){const a=document.createElement('a');a.href=data.signedUrl;a.target='_blank';a.textContent='Download';row.appendChild(a);}div.appendChild(row);}}catch(e){const er=document.createElement('div');er.className='small';er.textContent='Could not list this upload: '+e.message;div.appendChild(er);}}}catch(e){list.textContent='Error: '+e.message;}}
+ document.getElementById('refresh').onclick=refresh;refresh();
 }else{
- app.innerHTML='<div class="box"><b>WhatsApp phone</b><p>Select the <b>WhatsApp Voice Notes</b> folder. The whole selected folder will be sent.</p><button id="choose">Choose folder</button><p id="chosen" class="small">No folder selected.</p><p><button id="send" disabled>Send folder</button></p><p id="s">Connecting…</p><div id="progress"></div></div>';
- const s=document.getElementById("s"),choose=document.getElementById("choose"),send=document.getElementById("send"),chosen=document.getElementById("chosen"),progress=document.getElementById("progress");
- let peer=new Peer(undefined,{config:{iceServers:ice}}),c,ready=false,files=[],folderName="";
- peer.on("open",()=>{
-   c=peer.connect(remote,{reliable:true});
-   c.on("open",()=>c.send({type:"auth",token}));
-   c.on("data",d=>{
-     if(d&&d.type==="hello"&&d.token===token){ready=true;s.textContent="Connected. Choose the WhatsApp Voice Notes folder.";send.disabled=!files.length;}
-   });
-   c.on("error",e=>s.textContent="Connection error: "+e.message);
- });
- peer.on("error",e=>s.textContent="Could not connect to Device B. "+e.type);
-
- async function readDirectory(dir){
-   const result=[];
-   async function walk(handle,path=""){
-     for await(const entry of handle.values()){
-       const rel=path+entry.name;
-       if(entry.kind==="file"){
-         const f=await entry.getFile();
-         result.push({file:f,name:rel});
-       }else if(entry.kind==="directory"){
-         await walk(entry,rel+"/");
-       }
-     }
-   }
-   await walk(dir);
-   return result;
+ const remote=p.get('peer'),token=p.get('token');
+ if(!remote){
+  app.innerHTML='<div class="box"><b>Your device</b><p>Create a one-time upload link and open it on the WhatsApp phone.</p><button id="create">Create upload link</button><p id="s"></p><div id="link"></div></div><div class="box"><b>View uploaded files</b><p class="small">After someone uploads a folder, open this page with <b>?admin=1</b> to see the stored files.</p><button id="admin">Open upload list</button></div>';
+  document.getElementById('admin').onclick=()=>location.href=location.pathname+'?admin=1';
+  document.getElementById('create').onclick=()=>{const s=document.getElementById('s'),out=document.getElementById('link');const t=crypto.randomUUID();const peer=new Peer();s.textContent='Creating link…';peer.on('open',id=>{const link=location.origin+location.pathname+'?peer='+encodeURIComponent(id)+'&token='+encodeURIComponent(t);out.innerHTML='<p>Open this link on the WhatsApp phone:</p><div style="word-break:break-all;background:#f5f5f5;padding:10px">'+link+'</div>';s.textContent='Waiting for upload…';});peer.on('connection',c=>{c.on('open',()=>c.send({type:'hello',token:t}));c.on('data',async d=>{if(d?.type==='auth'&&d.token===t){c.send({type:'auth-ok'});s.textContent='Connected. Waiting for folder upload…';} if(d?.type==='folder-upload-start'){s.textContent='Uploading folder: '+d.name+'…';}});});};
+ }else{
+  app.innerHTML='<div class="box"><b>WhatsApp phone</b><p>Select the <b>WhatsApp Voice Notes</b> folder. It will upload directly to your cloud storage.</p><button id="choose">Choose folder</button><p id="chosen" class="small">No folder selected.</p><button id="send" disabled>Upload folder</button><p id="s">Connecting…</p><div class="bar"><i id="bar"></i></div><p id="progress" class="small"></p></div>';
+  const s=document.getElementById('s'),choose=document.getElementById('choose'),send=document.getElementById('send'),chosen=document.getElementById('chosen'),prog=document.getElementById('progress'),bar=document.getElementById('bar');let files=[],folderName='',peer=new Peer(),c,ready=false;
+  peer.on('open',()=>{c=peer.connect(remote,{reliable:true});c.on('open',()=>c.send({type:'auth',token}));c.on('data',d=>{if(d?.type==='hello'&&d.token===token){ready=true;c.send({type:'auth',token});send.disabled=!files.length;s.textContent='Connected. Choose the folder.';}if(d?.type==='auth-ok')s.textContent='Connected. Choose the folder.';});c.on('error',e=>s.textContent='Connection error: '+e.message);});peer.on('error',e=>s.textContent='Connection error: '+e.type);
+  async function readDirectory(dir){const result=[];async function walk(h,path=''){for await(const e of h.values()){const rel=path+e.name;if(e.kind==='file'){result.push({file:await e.getFile(),name:rel});}else if(e.kind==='directory')await walk(e,rel+'/');}}await walk(dir);return result;}
+  choose.onclick=async()=>{try{let selected=[];if(window.showDirectoryPicker){const dir=await window.showDirectoryPicker({mode:'read'});folderName=dir.name;selected=await readDirectory(dir);}else{alert('This Chrome version does not support folder selection. Please use a recent Chrome.');return;}files=selected;chosen.textContent=folderName+' — '+files.length+' file(s) found.';send.disabled=!(ready&&files.length);s.textContent=ready?'Folder selected. Ready to upload.':'Folder selected. Waiting for connection…';}catch(e){if(e.name!=='AbortError')s.textContent='Folder picker error: '+e.message;}};
+  send.onclick=async()=>{send.disabled=true;choose.disabled=true;try{const uploadId=Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,8);const base=uploadId+'__'+safe(folderName);c?.send({type:'folder-upload-start',name:folderName});let done=0;for(const item of files){const path=base+'/'+safe(item.name);const {error}=await db.storage.from(BUCKET).upload(path,item.file,{contentType:item.file.type||'application/octet-stream',upsert:false});if(error)throw error;done++;const pct=Math.round(done/files.length*100);bar.style.width=pct+'%';prog.textContent='Uploaded '+done+' of '+files.length+' files';}c?.send({type:'folder-upload-done'});s.textContent='Folder uploaded successfully.';prog.textContent=files.length+' files uploaded to your cloud storage.';}catch(e){s.textContent='Upload failed: '+e.message;send.disabled=false;choose.disabled=false;}};
  }
- choose.onclick=async()=>{
-   try{
-     let selected=[];
-     if(window.showDirectoryPicker){
-       const dir=await window.showDirectoryPicker({mode:"read"});
-       folderName=dir.name;
-       selected=await readDirectory(dir);
-     }else{
-       const input=document.createElement("input");
-       input.type="file";input.webkitdirectory=true;input.multiple=true;
-       await new Promise(resolve=>{input.onchange=()=>{selected=[...input.files].map(f=>({file:f,name:f.webkitRelativePath||f.name}));resolve();};input.click();});
-       folderName=(selected[0]?.name||"").split("/")[0]||"Selected folder";
-     }
-     files=selected;
-     chosen.textContent=folderName+" — "+files.length+" file(s) found.";
-     send.disabled=!(ready&&files.length);
-     s.textContent=ready?"Folder selected. Ready to send.":"Folder selected. Waiting for connection…";
-   }catch(e){
-     if(e.name!=="AbortError") s.textContent="Could not open folder picker: "+e.message;
-   }
- };
- send.onclick=async()=>{
-   if(!files.length||!c)return;
-   send.disabled=true;choose.disabled=true;
-   c.send({type:"folder-start",name:folderName,count:files.length});
-   for(let n=0;n<files.length;n++){
-     const item=files[n],f=item.file;
-     c.send({type:"file-start",name:item.name,size:f.size,mime:f.type||"application/octet-stream"});
-     for(let i=0;i<f.size;i+=65536){
-       c.send(await f.slice(i,i+65536).arrayBuffer());
-       while(c.dataChannel && c.dataChannel.bufferedAmount>4*1024*1024) await new Promise(r=>setTimeout(r,50));
-     }
-     c.send({type:"file-end"});
-     progress.textContent="Sent "+(n+1)+" of "+files.length+" files";
-   }
-   c.send({type:"folder-end"});
-   s.textContent="Folder sent successfully.";
- };
 }
 </script></body></html>
