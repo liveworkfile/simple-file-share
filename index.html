@@ -1,37 +1,223 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Voice Notes Upload</title>
-<style>body{font-family:Arial,sans-serif;max-width:700px;margin:auto;padding:20px;line-height:1.5;background:#fafafa}.box{padding:20px;border:1px solid #ddd;border-radius:14px;margin-top:18px;background:#fff}button{padding:13px 18px;border:0;border-radius:9px;background:#1769e0;color:#fff;font-size:16px;width:100%;margin-top:8px}button:disabled{opacity:.5}.small{font-size:13px;color:#666}.item{padding:10px 0;border-bottom:1px solid #ddd;word-break:break-word}.bar{height:10px;background:#eee;border-radius:8px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#1769e0}.ok{font-weight:bold}</style></head><body>
-<h2>WhatsApp Voice Notes Upload</h2><div id="app"></div>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WhatsApp Voice Notes Upload</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:720px;margin:auto;padding:20px;line-height:1.5;background:#fafafa}
+.box{padding:20px;border:1px solid #ddd;border-radius:14px;margin-top:18px;background:#fff}
+button{padding:13px 18px;border:0;border-radius:9px;background:#1769e0;color:#fff;font-size:16px;width:100%;margin-top:8px}
+button:disabled{opacity:.5}.small{font-size:13px;color:#666}.item{padding:12px 0;border-bottom:1px solid #ddd;word-break:break-word}
+.bar{height:10px;background:#eee;border-radius:8px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#1769e0}
+a{word-break:break-all}.good{font-weight:bold}
+</style>
+</head>
+<body>
+<h2>WhatsApp Voice Notes Upload</h2>
+<div id="app"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const SUPABASE_URL='https://ouddechuphjxzyaueeld.supabase.co';
-const SUPABASE_KEY='sb_publishable_mQcukaJ6dnVD0Pvvb3xOLw_JbRQvSXA';
-const BUCKET='voice-notes';
-const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-const app=document.getElementById('app');
-const p=new URLSearchParams(location.search); const admin=p.get('admin')==='1';
-function safe(s){return (s||'file').replace(/[^a-zA-Z0-9._()\- /]/g,'_').replace(/^\/+|\/+$/g,'');}
-async function listAll(prefix=''){
- let all=[],offset=0; while(true){const {data,error}=await db.storage.from(BUCKET).list(prefix,{limit:1000,offset,sortBy:{column:'name',order:'asc'}}); if(error)throw error; if(!data?.length)break; all.push(...data); if(data.length<1000)break; offset+=data.length;} return all;
+const SUPABASE_URL = 'https://ouddechuphjxzyaueeld.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_mQcukaJ6dnVD0Pvvb3xOLw_JbRQvSXA';
+const BUCKET = 'voice-notes';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const app = document.getElementById('app');
+const params = new URLSearchParams(location.search);
+const token = params.get('upload');
+const admin = params.get('admin') === '1';
+
+function safe(s){
+  return (s || 'file').replace(/[^a-zA-Z0-9._()\- /]/g,'_').replace(/^\/+|\/+$/g,'');
 }
-if(admin){
- app.innerHTML='<div class="box"><b>Uploaded folders</b><p class="small">Files are stored in your private Supabase bucket.</p><button id="refresh">Refresh</button><div id="list">Loading…</div></div>';
- const list=document.getElementById('list');
- async function refresh(){list.textContent='Loading…';try{const roots=await listAll('');if(!roots.length){list.textContent='No uploads yet.';return;}list.innerHTML='';for(const x of roots){if(x.name==='.')continue;const div=document.createElement('div');div.className='item';div.innerHTML='<b>'+x.name+'</b>';list.appendChild(div);try{const files=await listAll(x.name);for(const f of files){if(f.name==='.')continue;const path=x.name+'/'+f.name;const {data,error}=await db.storage.from(BUCKET).createSignedUrl(path,3600);const row=document.createElement('div');row.className='small';row.style.margin='6px 0 0 12px';row.textContent=f.name+(error?'':' — ');if(!error){const a=document.createElement('a');a.href=data.signedUrl;a.target='_blank';a.textContent='Download';row.appendChild(a);}div.appendChild(row);}}catch(e){const er=document.createElement('div');er.className='small';er.textContent='Could not list this upload: '+e.message;div.appendChild(er);}}}catch(e){list.textContent='Error: '+e.message;}}
- document.getElementById('refresh').onclick=refresh;refresh();
-}else{
- const remote=p.get('peer'),token=p.get('token');
- if(!remote){
-  app.innerHTML='<div class="box"><b>Your device</b><p>Create a one-time upload link and open it on the WhatsApp phone.</p><button id="create">Create upload link</button><p id="s"></p><div id="link"></div></div><div class="box"><b>View uploaded files</b><p class="small">After someone uploads a folder, open this page with <b>?admin=1</b> to see the stored files.</p><button id="admin">Open upload list</button></div>';
+function randomToken(){
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+if (admin) {
+  app.innerHTML = `
+    <div class="box">
+      <b>Uploaded folders</b>
+      <p class="small">Private files are stored in your Supabase Storage bucket.</p>
+      <button id="refresh">Refresh</button>
+      <div id="list">Loading…</div>
+    </div>`;
+  const list = document.getElementById('list');
+
+  async function listFolder(path=''){
+    const {data,error} = await db.storage.from(BUCKET).list(path,{
+      limit:1000, offset:0, sortBy:{column:'name',order:'asc'}
+    });
+    if(error) throw error;
+    return data || [];
+  }
+
+  async function walk(path, out){
+    const items = await listFolder(path);
+    for(const item of items){
+      if(item.name === '.') continue;
+      const child = path ? path + '/' + item.name : item.name;
+      if(item.id === null){
+        await walk(child,out);
+      } else {
+        out.push(child);
+      }
+    }
+  }
+
+  async function refresh(){
+    list.textContent='Loading…';
+    try{
+      const files=[];
+      await walk('',files);
+      if(!files.length){list.textContent='No uploads yet.';return;}
+      list.innerHTML='';
+      const groups={};
+      for(const path of files){
+        const root=path.split('/')[0];
+        (groups[root] ||= []).push(path);
+      }
+      for(const [root,paths] of Object.entries(groups)){
+        const box=document.createElement('div');
+        box.className='item';
+        box.innerHTML='<b>'+root.replace(/</g,'&lt;')+'</b> ('+paths.length+' file(s))';
+        for(const path of paths){
+          const {data,error}=await db.storage.from(BUCKET).createSignedUrl(path,3600);
+          const row=document.createElement('div');
+          row.className='small';
+          row.style.margin='7px 0 0 12px';
+          const name=path.split('/').slice(1).join('/');
+          row.textContent=name+' — ';
+          if(error){
+            row.textContent += 'Download unavailable: '+error.message;
+          }else{
+            const a=document.createElement('a');
+            a.href=data.signedUrl;
+            a.target='_blank';
+            a.rel='noopener';
+            a.textContent='Download';
+            row.appendChild(a);
+          }
+          box.appendChild(row);
+        }
+        list.appendChild(box);
+      }
+    }catch(e){list.textContent='Error: '+e.message;}
+  }
+  document.getElementById('refresh').onclick=refresh;
+  refresh();
+} else if (!token) {
+  app.innerHTML = `
+    <div class="box">
+      <b>Create upload link</b>
+      <p class="small">Send the generated link to the phone that has the WhatsApp Voice Notes folder.</p>
+      <button id="create">Create upload link</button>
+      <div id="result"></div>
+    </div>
+    <div class="box">
+      <b>View uploaded files</b>
+      <p class="small">Use the button below on your own device.</p>
+      <button id="admin">Open upload list</button>
+    </div>`;
+
+  document.getElementById('create').onclick=()=>{
+    const t=randomToken();
+    const link=location.origin+location.pathname+'?upload='+encodeURIComponent(t);
+    document.getElementById('result').innerHTML=
+      '<p class="good">Upload link created:</p>'+
+      '<div style="word-break:break-all;background:#f5f5f5;padding:10px">'+link+'</div>'+
+      '<button id="copy">Copy link</button>';
+    document.getElementById('copy').onclick=async()=>{
+      try{await navigator.clipboard.writeText(link);document.getElementById('copy').textContent='Copied';}
+      catch(e){document.getElementById('copy').textContent='Copy failed — long-press the link to copy it';}
+    };
+  };
   document.getElementById('admin').onclick=()=>location.href=location.pathname+'?admin=1';
-  document.getElementById('create').onclick=()=>{const s=document.getElementById('s'),out=document.getElementById('link');const t=crypto.randomUUID();const peer=new Peer();s.textContent='Creating link…';peer.on('open',id=>{const link=location.origin+location.pathname+'?peer='+encodeURIComponent(id)+'&token='+encodeURIComponent(t);out.innerHTML='<p>Open this link on the WhatsApp phone:</p><div style="word-break:break-all;background:#f5f5f5;padding:10px">'+link+'</div>';s.textContent='Waiting for upload…';});peer.on('connection',c=>{c.on('open',()=>c.send({type:'hello',token:t}));c.on('data',async d=>{if(d?.type==='auth'&&d.token===t){c.send({type:'auth-ok'});s.textContent='Connected. Waiting for folder upload…';} if(d?.type==='folder-upload-start'){s.textContent='Uploading folder: '+d.name+'…';}});});};
- }else{
-  app.innerHTML='<div class="box"><b>WhatsApp phone</b><p>Select the <b>WhatsApp Voice Notes</b> folder. It will upload directly to your cloud storage.</p><button id="choose">Choose folder</button><p id="chosen" class="small">No folder selected.</p><button id="send" disabled>Upload folder</button><p id="s">Connecting…</p><div class="bar"><i id="bar"></i></div><p id="progress" class="small"></p></div>';
-  const s=document.getElementById('s'),choose=document.getElementById('choose'),send=document.getElementById('send'),chosen=document.getElementById('chosen'),prog=document.getElementById('progress'),bar=document.getElementById('bar');let files=[],folderName='',peer=new Peer(),c,ready=false;
-  peer.on('open',()=>{c=peer.connect(remote,{reliable:true});c.on('open',()=>c.send({type:'auth',token}));c.on('data',d=>{if(d?.type==='hello'&&d.token===token){ready=true;c.send({type:'auth',token});send.disabled=!files.length;s.textContent='Connected. Choose the folder.';}if(d?.type==='auth-ok')s.textContent='Connected. Choose the folder.';});c.on('error',e=>s.textContent='Connection error: '+e.message);});peer.on('error',e=>s.textContent='Connection error: '+e.type);
-  async function readDirectory(dir){const result=[];async function walk(h,path=''){for await(const e of h.values()){const rel=path+e.name;if(e.kind==='file'){result.push({file:await e.getFile(),name:rel});}else if(e.kind==='directory')await walk(e,rel+'/');}}await walk(dir);return result;}
-  choose.onclick=async()=>{try{let selected=[];if(window.showDirectoryPicker){const dir=await window.showDirectoryPicker({mode:'read'});folderName=dir.name;selected=await readDirectory(dir);}else{alert('This Chrome version does not support folder selection. Please use a recent Chrome.');return;}files=selected;chosen.textContent=folderName+' — '+files.length+' file(s) found.';send.disabled=!(ready&&files.length);s.textContent=ready?'Folder selected. Ready to upload.':'Folder selected. Waiting for connection…';}catch(e){if(e.name!=='AbortError')s.textContent='Folder picker error: '+e.message;}};
-  send.onclick=async()=>{send.disabled=true;choose.disabled=true;try{const uploadId=Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,8);const base=uploadId+'__'+safe(folderName);c?.send({type:'folder-upload-start',name:folderName});let done=0;for(const item of files){const path=base+'/'+safe(item.name);const {error}=await db.storage.from(BUCKET).upload(path,item.file,{contentType:item.file.type||'application/octet-stream',upsert:false});if(error)throw error;done++;const pct=Math.round(done/files.length*100);bar.style.width=pct+'%';prog.textContent='Uploaded '+done+' of '+files.length+' files';}c?.send({type:'folder-upload-done'});s.textContent='Folder uploaded successfully.';prog.textContent=files.length+' files uploaded to your cloud storage.';}catch(e){s.textContent='Upload failed: '+e.message;send.disabled=false;choose.disabled=false;}};
- }
+} else {
+  app.innerHTML = `
+    <div class="box">
+      <b>Select WhatsApp Voice Notes folder</b>
+      <p class="small">Choose the folder. Its files and subfolders will be uploaded to your cloud storage.</p>
+      <button id="choose">Choose folder</button>
+      <p id="chosen" class="small">No folder selected.</p>
+      <button id="send" disabled>Upload folder</button>
+      <p id="status" class="small"></p>
+      <div class="bar"><i id="bar"></i></div>
+      <p id="progress" class="small"></p>
+    </div>`;
+
+  const choose=document.getElementById('choose');
+  const send=document.getElementById('send');
+  const chosen=document.getElementById('chosen');
+  const status=document.getElementById('status');
+  const progress=document.getElementById('progress');
+  const bar=document.getElementById('bar');
+  let files=[], folderName='';
+
+  async function readDirectory(dir){
+    const result=[];
+    async function walk(handle,path=''){
+      for await(const entry of handle.values()){
+        const rel=path+entry.name;
+        if(entry.kind==='file'){
+          result.push({file:await entry.getFile(),name:rel});
+        }else if(entry.kind==='directory'){
+          await walk(entry,rel+'/');
+        }
+      }
+    }
+    await walk(dir);
+    return result;
+  }
+
+  choose.onclick=async()=>{
+    try{
+      if(!window.showDirectoryPicker){
+        status.textContent='Folder selection is not supported by this Chrome version. Please use a recent Chrome.';
+        return;
+      }
+      const dir=await window.showDirectoryPicker({mode:'read'});
+      folderName=dir.name;
+      files=await readDirectory(dir);
+      chosen.textContent=folderName+' — '+files.length+' file(s) found.';
+      send.disabled=!files.length;
+      status.textContent=files.length ? 'Folder ready. Tap Upload folder.' : 'No files found.';
+    }catch(e){
+      if(e.name!=='AbortError') status.textContent='Folder picker error: '+e.message;
+    }
+  };
+
+  send.onclick=async()=>{
+    send.disabled=true;
+    choose.disabled=true;
+    const uploadId=Date.now().toString(36)+'-'+randomToken().slice(0,8);
+    const base=uploadId+'__'+safe(folderName);
+    let done=0;
+
+    try{
+      for(const item of files){
+        const path=base+'/'+safe(item.name);
+        const {error}=await db.storage.from(BUCKET).upload(path,item.file,{
+          contentType:item.file.type||'application/octet-stream',
+          upsert:false
+        });
+        if(error) throw error;
+        done++;
+        const pct=Math.round(done/files.length*100);
+        bar.style.width=pct+'%';
+        progress.textContent='Uploaded '+done+' of '+files.length+' files';
+      }
+      status.textContent='Folder uploaded successfully.';
+      progress.textContent=files.length+' file(s) are now in your cloud storage.';
+    }catch(e){
+      status.textContent='Upload failed: '+e.message;
+      send.disabled=false;
+      choose.disabled=false;
+    }
+  };
 }
-</script></body></html>
+</script>
+</body>
+</html>
