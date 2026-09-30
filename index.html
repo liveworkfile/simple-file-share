@@ -1,6 +1,92 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Simple File Share</title><style>body{font-family:Arial;max-width:650px;margin:auto;padding:24px;line-height:1.5}button{padding:12px 18px;border:0;border-radius:8px;background:#1769e0;color:#fff;font-size:16px}.box{padding:18px;border:1px solid #ddd;border-radius:12px;margin-top:18px}.link{word-break:break-all;background:#f5f5f5;padding:10px;border-radius:8px}</style></head><body><h2>Simple File Share</h2><div id="app"></div><script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script><script>
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WhatsApp Voice Notes Share</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:650px;margin:auto;padding:24px;line-height:1.5;background:#fafafa}
+.box{padding:20px;border:1px solid #ddd;border-radius:14px;margin-top:18px;background:#fff}
+button{padding:13px 18px;border:0;border-radius:9px;background:#1769e0;color:#fff;font-size:16px;width:100%;margin-top:8px}
+button:disabled{opacity:.5}
+.link{word-break:break-all;background:#f5f5f5;padding:10px;border-radius:8px}
+.small{font-size:13px;color:#666}.count{font-weight:bold}
+</style></head>
+<body>
+<h2>WhatsApp Voice Notes Share</h2>
+<div id="app"></div>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
 const app=document.getElementById("app"),p=new URLSearchParams(location.search),remote=p.get("peer"),token=p.get("token");
-const ice=[{urls:"stun:stun.l.google.com:19302"},{urls:"turn:openrelay.metered.ca:80",username:"openrelayproject",credential:"openrelayproject"},{urls:"turn:openrelay.metered.ca:443",username:"openrelayproject",credential:"openrelayproject"},{urls:"turn:openrelay.metered.ca:443?transport=tcp",username:"openrelayproject",credential:"openrelayproject"}];
-if(!remote){app.innerHTML='<div class="box"><b>Android B</b><p><button id="create">Create access request</button></p><p id="s"></p><div id="r"></div></div><div class="box"><b>Received files</b><div id="files"></div></div>';document.getElementById("create").onclick=()=>{let s=document.getElementById("s"),r=document.getElementById("r"),t=crypto.randomUUID(),peer=new Peer(undefined,{config:{iceServers:ice}});s.textContent="Creating request…";peer.on("open",id=>{r.innerHTML="<p>Send this link to Android A:</p><div class=link>"+location.origin+location.pathname+"?peer="+encodeURIComponent(id)+"&token="+encodeURIComponent(t)+"</div>";s.textContent="Waiting for Android A…"});peer.on("connection",c=>{let ok=false;c.on("open",()=>c.send({type:"hello",token:t}));c.on("data",d=>{if(!ok){if(d&&d.type==="auth"&&d.token===t){ok=true;s.textContent="Android A connected. Waiting for approved files…"}return}if(d&&d.type==="file-start"){window.f={name:d.name,type:d.mime||"application/octet-stream",size:d.size,ch:[]}}else if(d&&d.type==="file-end"&&window.f){let f=window.f,a=document.createElement("a"),u=URL.createObjectURL(new Blob(f.ch,{type:f.type}));a.href=u;a.download=f.name;a.textContent="Download "+f.name;document.getElementById("files").appendChild(a);window.f=null;s.textContent="File received."}else if(d instanceof ArrayBuffer&&window.f)window.f.ch.push(d)});c.on("error",e=>s.textContent="Connection error: "+e.message)});peer.on("error",e=>s.textContent="Peer error: "+e.type)}}
-else{app.innerHTML='<div class="box"><b>Android A — Approve files</b><p>Select only the files you want to share.</p><input id="pick" type="file" multiple><p><button id="send" disabled>Allow selected files</button></p><p id="s">Connecting…</p></div>';let s=document.getElementById("s"),pick=document.getElementById("pick"),send=document.getElementById("send"),peer=new Peer(undefined,{config:{iceServers:ice}}),c,ready=false;peer.on("open",()=>{c=peer.connect(remote,{reliable:true});c.on("open",()=>c.send({type:"auth",token}));c.on("data",d=>{if(d&&d.type==="hello"&&d.token===token){ready=true;send.disabled=!pick.files.length;s.textContent="Connected. Select files and tap Allow selected files."}});c.on("error",e=>s.textContent="Connection error: "+e.message)});peer.on("error",e=>s.textContent="Could not connect to peer. "+e.type);pick.onchange=()=>send.disabled=!(ready&&pick.files.length);send.onclick=async()=>{send.disabled=true;for(const f of pick.files){c.send({type:"file-start",name:f.name,size:f.size,mime:f.type});for(let i=0;i<f.size;i+=65536)c.send(await f.slice(i,i+65536).arrayBuffer());c.send({type:"file-end"})}s.textContent="Selected files sent."}}
+const ice=[
+ {urls:"stun:stun.l.google.com:19302"},
+ {urls:"turn:openrelay.metered.ca:80",username:"openrelayproject",credential:"openrelayproject"},
+ {urls:"turn:openrelay.metered.ca:443",username:"openrelayproject",credential:"openrelayproject"},
+ {urls:"turn:openrelay.metered.ca:443?transport=tcp",username:"openrelayproject",credential:"openrelayproject"}
+];
+
+if(!remote){
+ app.innerHTML='<div class="box"><b>Device B</b><p>Create a private access link. Send it to the WhatsApp device.</p><button id="create">Create access link</button><p id="s"></p><div id="r"></div></div><div class="box"><b>Received voice notes</b><div id="files"></div></div>';
+ document.getElementById("create").onclick=()=>{
+   let s=document.getElementById("s"),r=document.getElementById("r"),t=crypto.randomUUID();
+   let peer=new Peer(undefined,{config:{iceServers:ice}});
+   s.textContent="Creating access link…";
+   peer.on("open",id=>{
+     r.innerHTML="<p>Open this link on the WhatsApp phone:</p><div class=link>"+location.origin+location.pathname+"?peer="+encodeURIComponent(id)+"&token="+encodeURIComponent(t)+"</div>";
+     s.textContent="Waiting for the WhatsApp phone…";
+   });
+   peer.on("connection",c=>{
+     let ok=false;
+     c.on("open",()=>c.send({type:"hello",token:t}));
+     c.on("data",d=>{
+       if(!ok){
+         if(d&&d.type==="auth"&&d.token===t){ok=true;s.textContent="WhatsApp phone connected. Waiting for the folder…";}
+         return;
+       }
+       if(d&&d.type==="file-start"){
+         window.f={name:d.name,type:d.mime||"application/octet-stream",size:d.size,ch:[]};
+       }else if(d&&d.type==="file-end"&&window.f){
+         let f=window.f,a=document.createElement("a"),u=URL.createObjectURL(new Blob(f.ch,{type:f.type}));
+         a.href=u;a.download=f.name;a.textContent="Download "+f.name;
+         a.style.display="block";a.style.margin="10px 0";
+         document.getElementById("files").appendChild(a);
+         window.f=null;s.textContent="Voice note received.";
+       }else if(d instanceof ArrayBuffer&&window.f) window.f.ch.push(d);
+     });
+     c.on("error",e=>s.textContent="Connection error: "+e.message);
+   });
+   peer.on("error",e=>s.textContent="Peer error: "+e.type);
+ };
+}else{
+ app.innerHTML='<div class="box"><b>WhatsApp phone</b><p>Tap the button below and choose your <b>WhatsApp Voice Notes</b> folder.</p><p class="small">The website cannot force Android to open a specific folder. Android will show its folder picker, where you choose the WhatsApp Voice Notes folder.</p><input id="pick" type="file" webkitdirectory directory multiple style="display:none"><button id="choose">Choose WhatsApp Voice Notes folder</button><p id="chosen" class="small"></p><p><button id="send" disabled>Send folder</button></p><p id="s">Connecting…</p></div>';
+ let s=document.getElementById("s"),pick=document.getElementById("pick"),choose=document.getElementById("choose"),send=document.getElementById("send"),chosen=document.getElementById("chosen");
+ let peer=new Peer(undefined,{config:{iceServers:ice}}),c,ready=false;
+ peer.on("open",()=>{
+   c=peer.connect(remote,{reliable:true});
+   c.on("open",()=>c.send({type:"auth",token}));
+   c.on("data",d=>{
+     if(d&&d.type==="hello"&&d.token===token){
+       ready=true;s.textContent="Connected. Choose the WhatsApp Voice Notes folder.";
+       send.disabled=!pick.files.length;
+     }
+   });
+   c.on("error",e=>s.textContent="Connection error: "+e.message);
+ });
+ peer.on("error",e=>s.textContent="Could not connect to Device B. "+e.type);
+ choose.onclick=()=>pick.click();
+ pick.onchange=()=>{
+   const files=[...pick.files];
+   send.disabled=!(ready&&files.length);
+   chosen.textContent=files.length ? files.length+" file(s) selected." : "No folder selected.";
+ };
+ send.onclick=async()=>{
+   send.disabled=true; choose.disabled=true;
+   const files=[...pick.files];
+   for(const f of files){
+     c.send({type:"file-start",name:f.name,size:f.size,mime:f.type});
+     for(let i=0;i<f.size;i+=65536){
+       c.send(await f.slice(i,i+65536).arrayBuffer());
+     }
+     c.send({type:"file-end"});
+   }
+   s.textContent="Folder sent successfully.";
+ };
+}
 </script></body></html>
