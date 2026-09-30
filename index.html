@@ -48,9 +48,20 @@ if(!remote){
          window.f={name:d.name,type:d.mime||"application/octet-stream",size:d.size,ch:[]};
          s.textContent="Receiving: "+d.name;
        }else if(d&&d.type==="file-end"&&window.f){
-         const f=window.f,a=document.createElement("a"),u=URL.createObjectURL(new Blob(f.ch,{type:f.type}));
-         a.href=u;a.download=f.name;a.textContent="Download "+f.name;a.style.display="block";a.style.margin="10px 0";
-         document.getElementById("files").appendChild(a);window.f=null;
+         const f=window.f;
+         const blob=new Blob(f.ch,{type:f.type});
+         const safeName=(f.name||"file").split("/").pop().replace(/[\\/:*?"<>|]/g,"_")||"file";
+         const u=URL.createObjectURL(blob);
+         const wrap=document.createElement("div");
+         wrap.style.cssText="padding:10px 0;border-bottom:1px solid #ddd";
+         const info=document.createElement("div");
+         info.textContent=safeName+" — "+(blob.size/1024).toFixed(1)+" KB";
+         const a=document.createElement("a");
+         a.href=u;a.download=safeName;a.textContent="Download file";a.style.display="inline-block";a.style.marginTop="8px";
+         a.addEventListener("click",()=>setTimeout(()=>URL.revokeObjectURL(u),60000),{once:true});
+         wrap.appendChild(info);wrap.appendChild(a);
+         document.getElementById("files").appendChild(wrap);
+         window.f=null;
        }else if(d&&d.type==="folder-end"){
          s.textContent="Folder received successfully.";
        }else if(d instanceof ArrayBuffer&&window.f) window.f.ch.push(d);
