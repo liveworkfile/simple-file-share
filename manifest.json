@@ -1,9 +1,1 @@
-{
-  "name":"Simple File Share",
-  "short_name":"File Share",
-  "start_url":"./",
-  "display":"standalone",
-  "background_color":"#f3f4f6",
-  "theme_color":"#111827",
-  "icons":[]
-}
+{"name":"Simple File Share","short_name":"File Share","start_url":"./","display":"standalone","background_color":"#fff","theme_color":"#1769e0"}
