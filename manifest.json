@@ -1,1 +1,7 @@
-{"name":"WhatsApp Voice Notes Share","short_name":"Voice Share","start_url":".","display":"standalone","background_color":"#ffffff","theme_color":"#1769e0"}
+{
+  "name": "WhatsApp Voice Notes Share",
+  "short_name": "Voice Notes Share",
+  "start_url": ".",
+  "display": "standalone",
+  "description": "Select a folder and send its files to another device."
+}

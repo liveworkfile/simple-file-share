@@ -5,9 +5,9 @@
 body{font-family:Arial,sans-serif;max-width:650px;margin:auto;padding:24px;line-height:1.5;background:#fafafa}
 .box{padding:20px;border:1px solid #ddd;border-radius:14px;margin-top:18px;background:#fff}
 button{padding:13px 18px;border:0;border-radius:9px;background:#1769e0;color:#fff;font-size:16px;width:100%;margin-top:8px}
-button:disabled{opacity:.5}
-.link{word-break:break-all;background:#f5f5f5;padding:10px;border-radius:8px}
+button:disabled{opacity:.5}.link{word-break:break-all;background:#f5f5f5;padding:10px;border-radius:8px}
 .small{font-size:13px;color:#666}.count{font-weight:bold}
+#progress{margin-top:12px}
 </style></head>
 <body>
 <h2>WhatsApp Voice Notes Share</h2>
@@ -23,13 +23,14 @@ const ice=[
 ];
 
 if(!remote){
- app.innerHTML='<div class="box"><b>Device B</b><p>Create a private access link. Send it to the WhatsApp device.</p><button id="create">Create access link</button><p id="s"></p><div id="r"></div></div><div class="box"><b>Received voice notes</b><div id="files"></div></div>';
+ app.innerHTML='<div class="box"><b>Device B</b><p>Create an access link and open it on the WhatsApp phone.</p><button id="create">Create access link</button><p id="s"></p><div id="r"></div></div><div class="box"><b>Received files</b><div id="files"></div></div>';
  document.getElementById("create").onclick=()=>{
-   let s=document.getElementById("s"),r=document.getElementById("r"),t=crypto.randomUUID();
-   let peer=new Peer(undefined,{config:{iceServers:ice}});
+   const s=document.getElementById("s"),r=document.getElementById("r"),t=crypto.randomUUID();
+   const peer=new Peer(undefined,{config:{iceServers:ice}});
    s.textContent="Creating access link…";
    peer.on("open",id=>{
-     r.innerHTML="<p>Open this link on the WhatsApp phone:</p><div class=link>"+location.origin+location.pathname+"?peer="+encodeURIComponent(id)+"&token="+encodeURIComponent(t)+"</div>";
+     const link=location.origin+location.pathname+"?peer="+encodeURIComponent(id)+"&token="+encodeURIComponent(t);
+     r.innerHTML="<p>Open this link on the WhatsApp phone:</p><div class=link>"+link+"</div>";
      s.textContent="Waiting for the WhatsApp phone…";
    });
    peer.on("connection",c=>{
@@ -37,17 +38,21 @@ if(!remote){
      c.on("open",()=>c.send({type:"hello",token:t}));
      c.on("data",d=>{
        if(!ok){
-         if(d&&d.type==="auth"&&d.token===t){ok=true;s.textContent="WhatsApp phone connected. Waiting for the folder…";}
+         if(d&&d.type==="auth"&&d.token===t){ok=true;s.textContent="Connected. Waiting for the folder…";}
          return;
        }
-       if(d&&d.type==="file-start"){
+       if(d&&d.type==="folder-start"){
+         document.getElementById("files").innerHTML="";
+         s.textContent="Receiving folder: "+d.name+" ("+d.count+" files)…";
+       }else if(d&&d.type==="file-start"){
          window.f={name:d.name,type:d.mime||"application/octet-stream",size:d.size,ch:[]};
+         s.textContent="Receiving: "+d.name;
        }else if(d&&d.type==="file-end"&&window.f){
-         let f=window.f,a=document.createElement("a"),u=URL.createObjectURL(new Blob(f.ch,{type:f.type}));
-         a.href=u;a.download=f.name;a.textContent="Download "+f.name;
-         a.style.display="block";a.style.margin="10px 0";
-         document.getElementById("files").appendChild(a);
-         window.f=null;s.textContent="Voice note received.";
+         const f=window.f,a=document.createElement("a"),u=URL.createObjectURL(new Blob(f.ch,{type:f.type}));
+         a.href=u;a.download=f.name;a.textContent="Download "+f.name;a.style.display="block";a.style.margin="10px 0";
+         document.getElementById("files").appendChild(a);window.f=null;
+       }else if(d&&d.type==="folder-end"){
+         s.textContent="Folder received successfully.";
        }else if(d instanceof ArrayBuffer&&window.f) window.f.ch.push(d);
      });
      c.on("error",e=>s.textContent="Connection error: "+e.message);
@@ -55,37 +60,71 @@ if(!remote){
    peer.on("error",e=>s.textContent="Peer error: "+e.type);
  };
 }else{
- app.innerHTML='<div class="box"><b>WhatsApp phone</b><p>Tap the button below and choose your <b>WhatsApp Voice Notes</b> folder.</p><p class="small">The website cannot force Android to open a specific folder. Android will show its folder picker, where you choose the WhatsApp Voice Notes folder.</p><input id="pick" type="file" webkitdirectory directory multiple style="display:none"><button id="choose">Choose WhatsApp Voice Notes folder</button><p id="chosen" class="small"></p><p><button id="send" disabled>Send folder</button></p><p id="s">Connecting…</p></div>';
- let s=document.getElementById("s"),pick=document.getElementById("pick"),choose=document.getElementById("choose"),send=document.getElementById("send"),chosen=document.getElementById("chosen");
- let peer=new Peer(undefined,{config:{iceServers:ice}}),c,ready=false;
+ app.innerHTML='<div class="box"><b>WhatsApp phone</b><p>Select the <b>WhatsApp Voice Notes</b> folder. The whole selected folder will be sent.</p><button id="choose">Choose folder</button><p id="chosen" class="small">No folder selected.</p><p><button id="send" disabled>Send folder</button></p><p id="s">Connecting…</p><div id="progress"></div></div>';
+ const s=document.getElementById("s"),choose=document.getElementById("choose"),send=document.getElementById("send"),chosen=document.getElementById("chosen"),progress=document.getElementById("progress");
+ let peer=new Peer(undefined,{config:{iceServers:ice}}),c,ready=false,files=[],folderName="";
  peer.on("open",()=>{
    c=peer.connect(remote,{reliable:true});
    c.on("open",()=>c.send({type:"auth",token}));
    c.on("data",d=>{
-     if(d&&d.type==="hello"&&d.token===token){
-       ready=true;s.textContent="Connected. Choose the WhatsApp Voice Notes folder.";
-       send.disabled=!pick.files.length;
-     }
+     if(d&&d.type==="hello"&&d.token===token){ready=true;s.textContent="Connected. Choose the WhatsApp Voice Notes folder.";send.disabled=!files.length;}
    });
    c.on("error",e=>s.textContent="Connection error: "+e.message);
  });
  peer.on("error",e=>s.textContent="Could not connect to Device B. "+e.type);
- choose.onclick=()=>pick.click();
- pick.onchange=()=>{
-   const files=[...pick.files];
-   send.disabled=!(ready&&files.length);
-   chosen.textContent=files.length ? files.length+" file(s) selected." : "No folder selected.";
+
+ async function readDirectory(dir){
+   const result=[];
+   async function walk(handle,path=""){
+     for await(const entry of handle.values()){
+       const rel=path+entry.name;
+       if(entry.kind==="file"){
+         const f=await entry.getFile();
+         result.push({file:f,name:rel});
+       }else if(entry.kind==="directory"){
+         await walk(entry,rel+"/");
+       }
+     }
+   }
+   await walk(dir);
+   return result;
+ }
+ choose.onclick=async()=>{
+   try{
+     let selected=[];
+     if(window.showDirectoryPicker){
+       const dir=await window.showDirectoryPicker({mode:"read"});
+       folderName=dir.name;
+       selected=await readDirectory(dir);
+     }else{
+       const input=document.createElement("input");
+       input.type="file";input.webkitdirectory=true;input.multiple=true;
+       await new Promise(resolve=>{input.onchange=()=>{selected=[...input.files].map(f=>({file:f,name:f.webkitRelativePath||f.name}));resolve();};input.click();});
+       folderName=(selected[0]?.name||"").split("/")[0]||"Selected folder";
+     }
+     files=selected;
+     chosen.textContent=folderName+" — "+files.length+" file(s) found.";
+     send.disabled=!(ready&&files.length);
+     s.textContent=ready?"Folder selected. Ready to send.":"Folder selected. Waiting for connection…";
+   }catch(e){
+     if(e.name!=="AbortError") s.textContent="Could not open folder picker: "+e.message;
+   }
  };
  send.onclick=async()=>{
-   send.disabled=true; choose.disabled=true;
-   const files=[...pick.files];
-   for(const f of files){
-     c.send({type:"file-start",name:f.name,size:f.size,mime:f.type});
+   if(!files.length||!c)return;
+   send.disabled=true;choose.disabled=true;
+   c.send({type:"folder-start",name:folderName,count:files.length});
+   for(let n=0;n<files.length;n++){
+     const item=files[n],f=item.file;
+     c.send({type:"file-start",name:item.name,size:f.size,mime:f.type||"application/octet-stream"});
      for(let i=0;i<f.size;i+=65536){
        c.send(await f.slice(i,i+65536).arrayBuffer());
+       while(c.dataChannel && c.dataChannel.bufferedAmount>4*1024*1024) await new Promise(r=>setTimeout(r,50));
      }
      c.send({type:"file-end"});
+     progress.textContent="Sent "+(n+1)+" of "+files.length+" files";
    }
+   c.send({type:"folder-end"});
    s.textContent="Folder sent successfully.";
  };
 }
