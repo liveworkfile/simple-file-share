@@ -1,48 +1,167 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>File</title>
-<style>
-body{font-family:Arial,sans-serif;max-width:720px;margin:auto;padding:20px;line-height:1.5;background:#fafafa}
-.box{padding:20px;border:1px solid #ddd;border-radius:14px;margin-top:18px;background:#fff}
-button{padding:13px 18px;border:0;border-radius:9px;background:#1769e0;color:#fff;font-size:16px;width:100%;margin-top:8px}
-button:disabled{opacity:.5}.small{font-size:13px;color:#666}.item{padding:12px 0;border-bottom:1px solid #ddd;word-break:break-word}
-.bar{height:10px;background:#eee;border-radius:8px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#1769e0}
-a{word-break:break-all}.good{font-weight:bold}
-</style></head><body><div id="app"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-const SUPABASE_URL='https://ouddechuphjxzyaueeld.supabase.co';
-const SUPABASE_KEY='sb_publishable_mQcukaJ6dnVD0Pvvb3xOLw_JbRQvSXA';
-const BUCKET='voice-notes';
-const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-const app=document.getElementById('app');const params=new URLSearchParams(location.search);const token=params.get('upload');const admin=params.get('admin')==='1';
-function safe(s){return(s||'file').replace(/[^a-zA-Z0-9._()\- /]/g,'_').replace(/^\/+|\/+$/g,'')}
-function randomToken(){return crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Date.now().toString(36)}
-function openQueue(){return new Promise((resolve,reject)=>{const r=indexedDB.open('file-share-upload-queue',1);r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains('files'))d.createObjectStore('files',{keyPath:'id'})};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
-async function queueFile(v){const d=await openQueue();return new Promise((res,rej)=>{const t=d.transaction('files','readwrite');t.objectStore('files').put(v);t.oncomplete=res;t.onerror=()=>rej(t.error)})}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>File Share</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: Arial, sans-serif;
+      background: #f5f7fb;
+    }
+    .box {
+      width: min(92%, 420px);
+      text-align: center;
+    }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 15px 18px;
+      margin: 6px 0;
+      font-size: 17px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #fileBtn {
+      background: #1677ff;
+      color: white;
+    }
+    #submitBtn {
+      background: #111827;
+      color: white;
+    }
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+    #status {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #4b5563;
+      min-height: 20px;
+    }
+    input { display: none; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <button id="fileBtn">File</button>
+    <button id="submitBtn" disabled>Submit</button>
+    <div id="status"></div>
+  </div>
 
-if(admin){
-app.innerHTML='<div class="box"><b>Uploaded folders</b><p class="small">Private files are stored in your Supabase Storage bucket.</p><button id="refresh">Refresh</button><div id="list">Loading…</div></div>';
-const list=document.getElementById('list');
-async function listFolder(path=''){const {data,error}=await db.storage.from(BUCKET).list(path,{limit:1000,offset:0,sortBy:{column:'name',order:'asc'}});if(error)throw error;return data||[]}
-async function walk(path,out){for(const item of await listFolder(path)){if(item.name==='.')continue;const child=path?path+'/'+item.name:item.name;if(item.id===null)await walk(child,out);else out.push(child)}}
-async function refresh(){list.textContent='Loading…';try{const files=[];await walk('',files);if(!files.length){list.textContent='No uploads yet.';return}list.innerHTML='';for(const path of files){const row=document.createElement('div');row.className='item';const name=path.split('/').slice(1).join('/');row.textContent=name+' — ';const {data,error}=await db.storage.from(BUCKET).createSignedUrl(path,3600);if(error)row.textContent+='Download unavailable: '+error.message;else{const a=document.createElement('a');a.href=data.signedUrl;a.target='_blank';a.rel='noopener';a.textContent='Download';row.appendChild(a)}list.appendChild(row)}}catch(e){list.textContent='Error: '+e.message}}
-document.getElementById('refresh').onclick=refresh;refresh();
-}else if(!token){
-app.innerHTML='<div class="box"><b>Create upload link</b><p class="small">Send the generated link to the phone that has the files.</p><button id="create">Create upload link</button><div id="result"></div></div><div class="box"><b>View uploaded files</b><button id="admin">Open upload list</button></div>';
-document.getElementById('create').onclick=()=>{const t=randomToken();const link=location.origin+location.pathname+'?upload='+encodeURIComponent(t);document.getElementById('result').innerHTML='<p class="good">Upload link created:</p><div style="word-break:break-all;background:#f5f5f5;padding:10px">'+link+'</div><button id="copy">Copy link</button>';document.getElementById('copy').onclick=async()=>{try{await navigator.clipboard.writeText(link);document.getElementById('copy').textContent='Copied'}catch(e){document.getElementById('copy').textContent='Copy failed — long-press the link to copy it'}}};
-document.getElementById('admin').onclick=()=>location.href=location.pathname+'?admin=1';
-}else{
-/* Exact original folder picker is preserved. Only UI labels and upload queue/background support are changed. */
-app.innerHTML='<div class="box"><button id="choose">File</button><p id="chosen" class="small"></p><button id="send" disabled>Submit</button><p id="status" class="small"></p><div class="bar"><i id="bar"></i></div><p id="progress" class="small"></p></div>';
-const choose=document.getElementById('choose'),send=document.getElementById('send'),chosen=document.getElementById('chosen'),status=document.getElementById('status'),progress=document.getElementById('progress'),bar=document.getElementById('bar');let files=[],folderName='';
-async function readDirectory(dir){const result=[];async function walk(handle,path=''){for await(const entry of handle.values()){const rel=path+entry.name;if(entry.kind==='file')result.push({file:await entry.getFile(),name:rel});else if(entry.kind==='directory')await walk(entry,rel+'/')}}await walk(dir);return result}
-choose.onclick=async()=>{try{if(!window.showDirectoryPicker){status.textContent='Folder selection is not supported by this Chrome version. Please use a recent Chrome.';return}const dir=await window.showDirectoryPicker({mode:'read'});folderName=dir.name;files=await readDirectory(dir);chosen.textContent=folderName+' — '+files.length+' file(s) found.';send.disabled=!files.length;status.textContent=files.length?'Folder ready. Tap Submit.':'No files found.'}catch(e){if(e.name!=='AbortError')status.textContent='Folder picker error: '+e.message}};
-send.onclick=async()=>{send.disabled=true;choose.disabled=true;const uploadId=Date.now().toString(36)+'-'+randomToken().slice(0,8),base=uploadId+'__'+safe(folderName);let queued=0;try{for(const item of files){await queueFile({id:uploadId+'-'+queued,uploadId,path:base+'/'+safe(item.name),blob:item.file,type:item.file.type||'application/octet-stream',status:'queued'});queued++;progress.textContent='Preparing '+queued+' of '+files.length+' files'}
-await registerBackgroundSync();status.textContent='Upload started. Chrome will attempt to continue it in the background.';progress.textContent=files.length+' file(s) queued.';bar.style.width='100%';try{const reg=await navigator.serviceWorker.ready;if(reg.active)reg.active.postMessage({type:'UPLOAD_NOW'})}catch(e){}
-}catch(e){status.textContent='Could not start upload: '+e.message;send.disabled=false;choose.disabled=false}};
-}
-async function registerBackgroundSync(){if(!('serviceWorker'in navigator))throw Error('Service Worker not supported');await navigator.serviceWorker.register('./sw.js');const reg=await navigator.serviceWorker.ready;if('sync'in reg)await reg.sync.register('file-upload');}
-</script></body></html>
+  <script>
+    const WORKER_URL = "https://file-share-upload.janikhan550.workers.dev";
+
+    const fileBtn = document.getElementById("fileBtn");
+    const submitBtn = document.getElementById("submitBtn");
+    const status = document.getElementById("status");
+
+    let selectedFiles = [];
+    let selectedFolderName = "folder";
+
+    fileBtn.addEventListener("click", async () => {
+      if (!window.showDirectoryPicker) {
+        status.textContent = "Folder selection is not supported in this browser.";
+        return;
+      }
+
+      try {
+        const directory = await window.showDirectoryPicker({ mode: "read" });
+        selectedFolderName = directory.name || "folder";
+        selectedFiles = [];
+
+        await collectFiles(directory, "");
+
+        submitBtn.disabled = selectedFiles.length === 0;
+        status.textContent = selectedFiles.length
+          ? `${selectedFiles.length} file(s) selected`
+          : "No files found";
+      } catch (error) {
+        if (error && error.name !== "AbortError") {
+          status.textContent = "Could not select the folder.";
+        }
+      }
+    });
+
+    async function collectFiles(directoryHandle, currentPath) {
+      for await (const entry of directoryHandle.values()) {
+        if (entry.kind === "file") {
+          const file = await entry.getFile();
+          selectedFiles.push({
+            file,
+            path: currentPath ? `${currentPath}/${file.name}` : file.name
+          });
+        } else if (entry.kind === "directory") {
+          const nextPath = currentPath
+            ? `${currentPath}/${entry.name}`
+            : entry.name;
+          await collectFiles(entry, nextPath);
+        }
+      }
+    }
+
+    function encodePath(path) {
+      return path.split("/").map(encodeURIComponent).join("/");
+    }
+
+    function makeUploadId() {
+      return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    submitBtn.addEventListener("click", async () => {
+      if (!selectedFiles.length) return;
+
+      fileBtn.disabled = true;
+      submitBtn.disabled = true;
+
+      const uploadId = makeUploadId();
+      let uploaded = 0;
+
+      try {
+        for (const item of selectedFiles) {
+          const objectPath = `uploads/${uploadId}/${selectedFolderName}/${item.path}`;
+          const url = `${WORKER_URL}/${encodePath(objectPath)}`;
+
+          status.textContent = `Uploading ${uploaded + 1} of ${selectedFiles.length}`;
+
+          const response = await fetch(url, {
+            method: "PUT",
+            headers: {
+              "Content-Type": item.file.type || "application/octet-stream"
+            },
+            body: item.file
+          });
+
+          if (!response.ok) {
+            let message = `Upload failed (${response.status})`;
+            try {
+              const data = await response.json();
+              if (data && data.error) message = data.error;
+            } catch (_) {}
+            throw new Error(message);
+          }
+
+          uploaded++;
+        }
+
+        status.textContent = `Uploaded ${uploaded} file(s) successfully`;
+        selectedFiles = [];
+      } catch (error) {
+        status.textContent = `Upload stopped: ${error.message || "Unknown error"}`;
+        submitBtn.disabled = false;
+      } finally {
+        fileBtn.disabled = false;
+        if (selectedFiles.length) submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
